@@ -1287,7 +1287,7 @@
                 return { totalCount, stats };
             };
 
-            const handleExportPDF = async () => {
+            const handleExportPNG = async () => {
                 try {
                     if (typeof html2canvas === 'undefined') throw new Error('html2canvas not loaded');
                     const element = tableRef.current;
@@ -1305,10 +1305,10 @@
                 }
             };
 
-            const handleExportXLSX = () => {
+            const handleExportCSV = () => {
                 try {
                     const rows = [
-                        ['ថ្ងៃលក់', 'ឈ្មោះផេក', 'អ្នកគ្រប់គ្រង', 'ឈ្មោះអតិថិជន', 'លេខ', 'ប្រភេទជំងឺ', 'ថ្ងៃរាប់', 'ថ្ងៃផុត', 'Status']
+                        ['ថ្ងៃលក់', 'ឈ្មោះផេក', 'អ្នកគ្រប់គ្រង', 'ឈ្មោះអតិថិជន', 'លេខ', 'ប្រភេទជំងឺ', 'ថ្ងៃរាប់', 'ថ្ងៃផុត', 'ស្ថានភាព']
                     ];
                     filteredAndSortedSales.forEach(sale => {
                         rows.push([
@@ -1320,7 +1320,7 @@
                             sale.diseaseType || '-',
                             sale.daysElapsed,
                             sale.daysLeft,
-                            'Pending'
+                            'រង់ចាំ'
                         ]);
                     });
                     const csv = rows.map(row => row.map(cell => sanitizeCsvCell(cell)).join(',')).join('\n');
@@ -1355,8 +1355,8 @@
                             <option value="daysLeft">Sort: ថ្ងៃផុត</option>
                             <option value="daysElapsed">Sort: ថ្ងៃរាប់</option>
                         </select>
-                        <button onClick={handleExportPDF} className="px-3 py-2 bg-green-600 text-white rounded text-xs font-bold flex items-center gap-1 hover:bg-green-700"><Icons.Download size={14} /> PNG</button>
-                        <button onClick={handleExportXLSX} className="px-3 py-2 bg-blue-600 text-white rounded text-xs font-bold flex items-center gap-1 hover:bg-blue-700"><Icons.Download size={14} /> CSV</button>
+                        <button onClick={handleExportPNG} className="px-3 py-2 bg-green-600 text-white rounded text-xs font-bold flex items-center gap-1 hover:bg-green-700"><Icons.Download size={14} /> PNG</button>
+                        <button onClick={handleExportCSV} className="px-3 py-2 bg-blue-600 text-white rounded text-xs font-bold flex items-center gap-1 hover:bg-blue-700"><Icons.Download size={14} /> CSV</button>
                         <button onClick={handlePrint} className="px-3 py-2 bg-purple-600 text-white rounded text-xs font-bold flex items-center gap-1 hover:bg-purple-700"><Icons.Printer size={14} /> Print</button>
                     </div>
 
