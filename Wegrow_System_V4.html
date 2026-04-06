@@ -1202,6 +1202,217 @@
             );
         };
 
+        const FollowUpView = ({ sales, onAlert, onToast }) => {
+            const [filterDays, setFilterDays] = React.useState('7-10');
+            const [searchQuery, setSearchQuery] = React.useState('');
+            const [sortBy, setSortBy] = React.useState('daysLeft');
+            const [followedUpIds, setFollowedUpIds] = React.useState(() => safeJsonParse(localStorage.getItem('followedUpIds'), []));
+            const tableRef = React.useRef(null);
+
+            const calculateDaysElapsed = (date) => {
+                const saleDate = new Date(date);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                saleDate.setHours(0, 0, 0, 0);
+                return Math.floor((today - saleDate) / (1000 * 60 * 60 * 24));
+            };
+
+            const calculateDaysLeft = (endDate) => {
+                if (!endDate) return 0;
+                const expireDate = new Date(endDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                expireDate.setHours(0, 0, 0, 0);
+                return Math.floor((expireDate - today) / (1000 * 60 * 60 * 24));
+            };
+
+            const getColorByDaysLeft = (daysLeft) => {
+                if (daysLeft > 7) return 'bg-green-100 text-green-700';
+                if (daysLeft > 3) return 'bg-yellow-100 text-yellow-700';
+                return 'bg-red-100 text-red-700';
+            };
+
+            const filteredAndSortedSales = React.useMemo(() => {
+                return sales
+                    .map(sale => ({
+                        ...sale,
+                        daysElapsed: calculateDaysElapsed(sale.date),
+                        daysLeft: calculateDaysLeft(sale.endDate)
+                    }))
+                    .filter(sale => {
+                        const q = searchQuery.toLowerCase();
+                        const matchesSearch = !searchQuery ||
+                            (sale.customerName || '').toLowerCase().includes(q) ||
+                            (sale.phone || '').includes(searchQuery);
+                        if (filterDays === '7-10') return matchesSearch && sale.daysElapsed >= 7 && sale.daysElapsed < 10;
+                        if (filterDays === '10-15') return matchesSearch && sale.daysElapsed >= 10 && sale.daysElapsed < 15;
+                        if (filterDays === '15+') return matchesSearch && sale.daysElapsed >= 15;
+                        return matchesSearch;
+                    })
+                    .filter(sale => !followedUpIds.includes(sale.id))
+                    .sort((a, b) => {
+                        if (sortBy === 'daysLeft') return a.daysLeft - b.daysLeft;
+                        if (sortBy === 'daysElapsed') return b.daysElapsed - a.daysElapsed;
+                        return 0;
+                    });
+            }, [sales, filterDays, searchQuery, sortBy, followedUpIds]);
+
+            const handleMarkFollowedUp = (id) => {
+                const updated = [...followedUpIds, id];
+                setFollowedUpIds(updated);
+                localStorage.setItem('followedUpIds', JSON.stringify(updated));
+                onToast('បានសម្គាល់ថាបាន follow-up រួចរាល់!');
+            };
+
+            const handleRemoveFromList = (id) => {
+                const updated = followedUpIds.filter(fid => fid !== id);
+                setFollowedUpIds(updated);
+                localStorage.setItem('followedUpIds', JSON.stringify(updated));
+                onToast('បានលុបចេញពីបញ្ជី!');
+            };
+
+            const handleClearFilter = () => {
+                setSearchQuery('');
+                setFollowedUpIds([]);
+                localStorage.removeItem('followedUpIds');
+                onToast('បាន Clear Filter ហើយ!');
+            };
+
+            const getSummaryStats = () => {
+                const totalCount = filteredAndSortedSales.length;
+                const stats = {};
+                MANAGERS.forEach(manager => {
+                    stats[manager] = filteredAndSortedSales.filter(s => normalizeManagerName(s.managerName) === manager).length;
+                });
+                return { totalCount, stats };
+            };
+
+            const handleExportPNG = async () => {
+                try {
+                    if (typeof html2canvas === 'undefined') throw new Error('html2canvas not loaded');
+                    const element = tableRef.current;
+                    if (!element) return;
+                    const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#ffffff' });
+                    const link = document.createElement('a');
+                    link.href = canvas.toDataURL('image/png');
+                    link.download = `followup_${getTodayLocal()}.png`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    onToast('បានទាញយក Follow-up Report PNG!');
+                } catch (err) {
+                    onAlert('បរាជ័យក្នុងការទាញយក: ' + err.message);
+                }
+            };
+
+            const handleExportCSV = () => {
+                try {
+                    const rows = [
+                        ['ថ្ងៃលក់', 'ឈ្មោះផេក', 'អ្នកគ្រប់គ្រង', 'ឈ្មោះអតិថិជន', 'លេខ', 'ប្រភេទជំងឺ', 'ថ្ងៃរាប់', 'ថ្ងៃផុត', 'ស្ថានភាព']
+                    ];
+                    filteredAndSortedSales.forEach(sale => {
+                        rows.push([
+                            sale.date,
+                            sale.pageName,
+                            sale.managerName,
+                            sale.customerName,
+                            sale.phone,
+                            sale.diseaseType || '-',
+                            sale.daysElapsed,
+                            sale.daysLeft,
+                            'រង់ចាំ'
+                        ]);
+                    });
+                    const csv = rows.map(row => row.map(cell => sanitizeCsvCell(cell)).join(',')).join('\n');
+                    downloadTextFile(`followup_${getTodayLocal()}.csv`, csv, 'text/csv;charset=utf-8;');
+                    onToast('បានទាញយក Follow-up Report CSV!');
+                } catch (err) {
+                    onAlert('បរាជ័យក្នុងការទាញយក: ' + err.message);
+                }
+            };
+
+            const handlePrint = () => {
+                const element = tableRef.current;
+                if (!element) return;
+                const w = window.open('', '_blank');
+                w.document.write(`<html><head><title>Follow-up Reminder Report</title><style>body{font-family:Arial,sans-serif;padding:20px;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #000;padding:8px;text-align:left;}th{background-color:#16a34a;color:white;}</style></head><body>${element.outerHTML}</body></html>`);
+                w.document.close();
+                w.focus();
+                setTimeout(() => w.print(), 400);
+            };
+
+            const summary = getSummaryStats();
+
+            return (
+                <div className="p-4">
+                    <div className="mb-4 flex gap-2 flex-wrap items-center">
+                        <button onClick={() => setFilterDays('7-10')} className={`px-3 py-2 rounded text-xs font-bold ${filterDays === '7-10' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>7-10 ថ្ងៃ</button>
+                        <button onClick={() => setFilterDays('10-15')} className={`px-3 py-2 rounded text-xs font-bold ${filterDays === '10-15' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>10-15 ថ្ងៃ</button>
+                        <button onClick={() => setFilterDays('15+')} className={`px-3 py-2 rounded text-xs font-bold ${filterDays === '15+' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>15+ ថ្ងៃ</button>
+                        <button onClick={handleClearFilter} className="px-3 py-2 rounded bg-red-500 text-white text-xs font-bold hover:bg-red-600">Clear</button>
+                        <input type="text" placeholder="ស្វែងរក ឈ្មោះ/លេខ..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-1 p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="p-2 border rounded text-sm outline-none">
+                            <option value="daysLeft">Sort: ថ្ងៃផុត</option>
+                            <option value="daysElapsed">Sort: ថ្ងៃរាប់</option>
+                        </select>
+                        <button onClick={handleExportPNG} className="px-3 py-2 bg-green-600 text-white rounded text-xs font-bold flex items-center gap-1 hover:bg-green-700"><Icons.Download size={14} /> PNG</button>
+                        <button onClick={handleExportCSV} className="px-3 py-2 bg-blue-600 text-white rounded text-xs font-bold flex items-center gap-1 hover:bg-blue-700"><Icons.Download size={14} /> CSV</button>
+                        <button onClick={handlePrint} className="px-3 py-2 bg-purple-600 text-white rounded text-xs font-bold flex items-center gap-1 hover:bg-purple-700"><Icons.Printer size={14} /> Print</button>
+                    </div>
+
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
+                        <p className="text-sm font-bold text-blue-800">📊 សង្ខេប (Summary)</p>
+                        <p className="text-xs mt-1">សរុប Follow-ups: <span className="font-bold">{summary.totalCount}</span></p>
+                        <div className="grid grid-cols-2 gap-2 mt-1 text-xs">
+                            {MANAGERS.map(manager => (
+                                <p key={manager}>{manager}: <span className="font-bold">{summary.stats[manager] || 0}</span></p>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto" ref={tableRef}>
+                        <table className="custom-table">
+                            <thead>
+                                <tr>
+                                    <th>ថ្ងៃលក់</th>
+                                    <th>ផេក</th>
+                                    <th>មេគ្រប់គ្រង</th>
+                                    <th>ឈ្មោះអតិថិជន</th>
+                                    <th>លេខ</th>
+                                    <th>ប្រភេទ</th>
+                                    <th className="text-center">ថ្ងៃរាប់</th>
+                                    <th className="text-center">ថ្ងៃផុត</th>
+                                    <th className="text-center no-print">សកម្មភាព</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredAndSortedSales.length === 0 ? (
+                                    <tr><td colSpan="9" className="text-center py-8 text-gray-500">គ្មាន Follow-up ដែលរង់ចាំ</td></tr>
+                                ) : (
+                                    filteredAndSortedSales.map(sale => (
+                                        <tr key={sale.id}>
+                                            <td>{sale.date}</td>
+                                            <td>{sale.pageName}</td>
+                                            <td><span className={`badge ${normalizeManagerName(sale.managerName) === MANAGERS[0] ? 'badge-manager-1' : 'badge-manager-2'}`}>{sale.managerName || 'មិនបញ្ជាក់'}</span></td>
+                                            <td>{sale.customerName}</td>
+                                            <td>{sale.phone}</td>
+                                            <td>{sale.diseaseType || '-'}</td>
+                                            <td className="text-center">{sale.daysElapsed}</td>
+                                            <td className="text-center"><span className={`px-2 py-1 rounded text-xs font-bold ${getColorByDaysLeft(sale.daysLeft)}`}>{sale.daysLeft}</span></td>
+                                            <td className="text-center no-print">
+                                                <button onClick={() => handleMarkFollowedUp(sale.id)} className="px-2 py-1 bg-green-500 text-white rounded text-xs mr-1 hover:bg-green-600" title="Mark as Followed">✓</button>
+                                                <button onClick={() => handleRemoveFromList(sale.id)} className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600" title="Remove from list">✕</button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
         const InputFormView = ({ formData, handleInputChange, handleSubmit, isEditing, cancelEdit, onSmartPaste, onClearForm, pageList }) => (
             <div className="bg-white p-4 rounded-lg shadow-md border border-gray-200 no-print w-full mx-auto">
                 <div className="flex justify-between items-center mb-4 border-b pb-2">
@@ -1722,6 +1933,7 @@
                             <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-4 font-medium transition ${activeTab === 'dashboard' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-50'}`}><Icons.LayoutDashboard size={20} /> ទិន្នន័យរួម</button>
                             <button onClick={() => setActiveTab('input')} className={`flex items-center gap-2 px-6 py-4 font-medium transition ${activeTab === 'input' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-50'}`}><Icons.PlusCircle size={20} /> បញ្ចូលទិន្នន័យ</button>
                             <button onClick={() => setActiveTab('list')} className={`flex items-center gap-2 px-6 py-4 font-medium transition ${activeTab === 'list' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-50'}`}><Icons.FileText size={20} /> របាយការណ៍</button>
+                            <button onClick={() => setActiveTab('followup')} className={`flex items-center gap-2 px-6 py-4 font-medium transition ${activeTab === 'followup' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-50'}`}><span>📞</span> Follow-up</button>
                         </div>
                     </div>
 
@@ -1759,6 +1971,7 @@
                         {activeTab === 'dashboard' && (<><div className="no-print max-w-5xl mx-auto mb-8"><DashboardView totalRevenue={totalRevenue} totalBoxes={totalBoxes} totalCustomers={totalCustomers} sales={filteredSales} /></div><TableView filteredSales={filteredSales} searchTerm={searchTerm} setSearchTerm={setSearchTerm} handlePrint={handlePrint} exportToCSV={exportToCSV} handleEdit={handleEdit} handleDelete={handleDelete} onGenerateMessage={handleOpenMessageModal} onViewInvoice={handleOpenInvoiceModal} logo={logo} printConfig={printConfig} setPrintConfig={setPrintConfig} filterDate={filterDate} setFilterDate={setFilterDate} setMonthFilter={setMonthFilter} handleCopyImage={handleCopyImage} isDashboard={true} /></>)}
                         {activeTab === 'input' && <InputFormView formData={formData} handleInputChange={handleInputChange} handleSubmit={handleSubmit} isEditing={isEditing} cancelEdit={cancelEdit} onSmartPaste={openSmartPaste} onClearForm={handleClearForm} pageList={pageList} />}
                         {activeTab === 'list' && <TableView filteredSales={filteredSales} searchTerm={searchTerm} setSearchTerm={setSearchTerm} handlePrint={handlePrint} exportToCSV={exportToCSV} handleEdit={handleEdit} handleDelete={handleDelete} onGenerateMessage={handleOpenMessageModal} onViewInvoice={handleOpenInvoiceModal} logo={logo} printConfig={printConfig} setPrintConfig={setPrintConfig} filterDate={filterDate} setFilterDate={setFilterDate} setMonthFilter={setMonthFilter} handleCopyImage={handleCopyImage} />}
+                        {activeTab === 'followup' && <FollowUpView sales={sales} onAlert={showAlert} onToast={showToast} />}
                     </main>
                     {showSettingsModal && <SettingsModal apiKey={apiKey} setApiKey={setApiKey} logo={logo} setLogo={setLogo} pageList={pageList} setPageList={setPageList} sales={sales} setSales={setSales} onClose={() => setShowSettingsModal(false)} onAlert={showAlert} onToast={showToast} />}
                     {showSmartPaste && <SmartPasteModal apiKey={apiKey} onClose={() => setShowSmartPaste(false)} onExtract={handleExtractData} onAlert={showAlert} pageList={pageList} />}
